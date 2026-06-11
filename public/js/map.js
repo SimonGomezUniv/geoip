@@ -31,18 +31,89 @@ const ISO_NUM_TO_A2 = {
   '894':'ZM'
 };
 
-let map = null;
-let geoLayer = null;
-let currentStats = null;
+let rootEl = null;
+let svgEl = null;
+let countriesGeo = null;
 
-function getCountryStats(statsCountries, a2) {
-  if (!statsCountries || !a2) return null;
-  return statsCountries[a2] || statsCountries[a2.toUpperCase()] || statsCountries[a2.toLowerCase()] || null;
+let d3Geo = null;
+let topojson = null;
+let libsPromise = null;
+
+const ALL_ISO_A2 = [...new Set(Object.values(ISO_NUM_TO_A2))];
+
+function loadLibraries() {
+  if (!libsPromise) {
+    libsPromise = Promise.all([
+      import('https://esm.sh/d3-geo@3.1.1'),
+      import('https://esm.sh/topojson-client@3.1.0')
+    ]).then(([d3m, topom]) => {
+      d3Geo = d3m;
+      topojson = topom;
+    });
+  }
+  return libsPromise;
+}
+
+function normalizeCountryName(name) {
+  if (!name) return '';
+  return String(name)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function normalizeCountryCode(value) {
+  const code = String(value || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(code) ? code : '';
+}
+
+function buildCountryNameIndex() {
+  const index = Object.create(null);
+  const displayNames = [];
+
+  try { displayNames.push(new Intl.DisplayNames(['en'], { type: 'region' })); } catch {}
+  try { displayNames.push(new Intl.DisplayNames(['fr'], { type: 'region' })); } catch {}
+
+  ALL_ISO_A2.forEach(code => {
+    index[code] = code;
+    displayNames.forEach(dn => {
+      const label = dn.of(code);
+      if (label) index[normalizeCountryName(label)] = code;
+    });
+  });
+
+  return index;
+}
+
+function resolveCountryCode(country, nameIndex) {
+  if (!country) return '';
+  const code = normalizeCountryCode(country.code);
+  if (code) return code;
+
+  const name = normalizeCountryName(country.name || '');
+  if (name && nameIndex[name]) return nameIndex[name];
+
+  const key = normalizeCountryName(country.key || '');
+  if (key && nameIndex[key]) return nameIndex[key];
+
+  return '';
+}
+
+function buildCountryIndex(statsCountries, nameIndex) {
+  const index = Object.create(null);
+  Object.entries(statsCountries || {}).forEach(([key, country]) => {
+    if (!country) return;
+    const resolved = resolveCountryCode({ ...country, key }, nameIndex) || normalizeCountryCode(key);
+    if (resolved) index[resolved] = country;
+  });
+  return index;
 }
 
 function getColor(count, maxCount) {
-  if (!count || count === 0) return '#1a1a2e';
-  if (maxCount === 0) return '#1a1a2e';
+  if (!count || count === 0) return '#101828';
+  if (maxCount === 0) return '#101828';
   const t = Math.log(count + 1) / Math.log(maxCount + 1);
   if (t < 0.2) return '#fee08b';
   if (t < 0.4) return '#fdae61';
@@ -51,91 +122,96 @@ function getColor(count, maxCount) {
   return '#a50026';
 }
 
-export async function initMap(containerId, stats) {
-  currentStats = stats;
-  if (map) { map.remove(); map = null; geoLayer = null; }
+function clearContainer(container) {
+  container.innerHTML = '';
+  rootEl = document.createElement('div');
+  rootEl.style.width = '100%';
+  rootEl.style.height = '100%';
+  rootEl.style.display = 'flex';
+  rootEl.style.flexDirection = 'column';
+  rootEl.style.gap = '8px';
 
-  map = L.map(containerId, { zoomControl: true, attributionControl: true });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors',
-    maxZoom: 18
-  }).addTo(map);
-  map.setView([20, 0], 2);
+  svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svgEl.setAttribute('width', '100%');
+  svgEl.setAttribute('height', '100%');
+  svgEl.setAttribute('viewBox', '0 0 1000 480');
+  svgEl.style.background = '#0b1220';
+  svgEl.style.border = '1px solid #2a2a4a';
+  svgEl.style.borderRadius = '10px';
+
+  const legend = document.createElement('div');
+  legend.style.cssText = 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:#eaeaea;font-size:12px';
+  legend.innerHTML = '<b>IPs par pays</b>' +
+    ['#fee08b','#fdae61','#f46d43','#d73027','#a50026'].map((c, i) =>
+      `<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:12px;height:12px;background:${c};display:inline-block;border-radius:2px"></span>${['faible','','moyen','','eleve'][i]}</span>`
+    ).join('');
+
+  rootEl.appendChild(svgEl);
+  rootEl.appendChild(legend);
+  container.appendChild(rootEl);
+}
+
+function renderChoropleth(stats) {
+  if (!svgEl || !countriesGeo || !d3Geo) return;
+
+  const statsCountries = stats.countries || {};
+  const maxCount = Math.max(...Object.values(statsCountries).map(c => c.count), 1);
+  const nameIndex = buildCountryNameIndex();
+  const countryIndex = buildCountryIndex(statsCountries, nameIndex);
+
+  const projection = d3Geo.geoNaturalEarth1().fitExtent([[8, 8], [992, 472]], countriesGeo);
+  const path = d3Geo.geoPath(projection);
+
+  const borderPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  borderPath.setAttribute('d', path({ type: 'Sphere' }) || '');
+  borderPath.setAttribute('fill', '#0b1220');
+  borderPath.setAttribute('stroke', '#334155');
+  borderPath.setAttribute('stroke-width', '0.6');
+  svgEl.appendChild(borderPath);
+
+  for (const feature of countriesGeo.features) {
+    const numId = String(feature.id).padStart(3, '0');
+    const a2 = ISO_NUM_TO_A2[numId];
+    const country = a2 ? countryIndex[a2] : null;
+    const count = country ? country.count : 0;
+
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', path(feature) || '');
+    p.setAttribute('fill', getColor(count, maxCount));
+    p.setAttribute('stroke', '#1f2937');
+    p.setAttribute('stroke-width', '0.45');
+    svgEl.appendChild(p);
+  }
+}
+
+export async function initMap(containerId, stats) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  clearContainer(container);
 
   try {
-    const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json');
-    const topo = await res.json();
-    const geo = topojson.feature(topo, topo.objects.countries);
-
-    const maxCount = Math.max(...Object.values(stats.countries || {}).map(c => c.count), 1);
-
-    geoLayer = L.geoJSON(geo, {
-      style: feature => {
-        const numId = String(feature.id).padStart(3, '0');
-        const a2 = ISO_NUM_TO_A2[numId];
-        const country = getCountryStats(stats.countries || {}, a2);
-        const count = country ? country.count : 0;
-        return {
-          fillColor: getColor(count, maxCount),
-          fillOpacity: 0.8,
-          color: '#2a2a4a',
-          weight: 0.5
-        };
-      },
-      onEachFeature: (feature, layer) => {
-        const numId = String(feature.id).padStart(3, '0');
-        const a2 = ISO_NUM_TO_A2[numId];
-        const country = getCountryStats(stats.countries || {}, a2);
-        layer.on({
-          mouseover: e => {
-            e.target.setStyle({ weight: 2, color: '#e94560' });
-            if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) e.target.bringToFront();
-          },
-          mouseout: e => geoLayer && geoLayer.resetStyle(e.target),
-          click: e => {
-            const name = country ? country.name : (a2 || 'Unknown');
-            const count = country ? country.count : 0;
-            const pct = country ? country.percent.toFixed(2) : '0.00';
-            L.popup().setLatLng(e.latlng)
-              .setContent(`<b>${name}</b><br>${count.toLocaleString()} IPs (${pct}%)`)
-              .openOn(map);
-          }
-        });
-      }
-    }).addTo(map);
-
-    // Legend
-    const legend = L.control({ position: 'bottomright' });
-    legend.onAdd = () => {
-      const div = L.DomUtil.create('div', 'info legend');
-      div.style.cssText = 'background:#1a1a2e;padding:8px 12px;border-radius:8px;border:1px solid #2a2a4a;color:#eaeaea;font-size:12px';
-      div.innerHTML = '<b>IPs par pays</b><br>' +
-        ['#fee08b','#fdae61','#f46d43','#d73027','#a50026'].map((c,i) =>
-          `<span style="display:inline-block;width:12px;height:12px;background:${c};margin-right:4px;border-radius:2px"></span>${['Faible','','Moyen','','Élevé'][i]}<br>`
-        ).join('');
-      return div;
-    };
-    legend.addTo(map);
+    await loadLibraries();
+    if (!countriesGeo) {
+      const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json');
+      const topo = await res.json();
+      countriesGeo = topojson.feature(topo, topo.objects.countries);
+    }
+    renderChoropleth(stats);
   } catch (err) {
-    console.warn('Map geo data failed:', err);
+    container.innerHTML = '<div style="color:#fca5a5;padding:12px">Impossible de charger la carte.</div>';
+    console.warn('Static map render failed:', err);
   }
 }
 
 export function updateMap(stats) {
-  if (!map || !geoLayer) { return; }
-  currentStats = stats;
-  const maxCount = Math.max(...Object.values(stats.countries || {}).map(c => c.count), 1);
-  geoLayer.setStyle(feature => {
-    const numId = String(feature.id).padStart(3, '0');
-    const a2 = ISO_NUM_TO_A2[numId];
-    const country = getCountryStats(stats.countries || {}, a2);
-    return {
-      fillColor: getColor(country ? country.count : 0, maxCount),
-      fillOpacity: 0.8, color: '#2a2a4a', weight: 0.5
-    };
-  });
+  if (!svgEl) return;
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+  renderChoropleth(stats);
 }
 
 export function destroyMap() {
-  if (map) { map.remove(); map = null; geoLayer = null; }
+  if (rootEl && rootEl.parentNode) rootEl.parentNode.removeChild(rootEl);
+  rootEl = null;
+  svgEl = null;
 }

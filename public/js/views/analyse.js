@@ -1,5 +1,33 @@
 import { parseIpList } from '../ip-utils.js';
 
+function buildStatsFromLookup(results, total) {
+  const continents = {};
+  const countries = {};
+  let found = 0;
+  let notFound = 0;
+
+  for (const r of results) {
+    if (!r || !r.found) {
+      notFound++;
+      continue;
+    }
+    found++;
+    if (r.oc) {
+      if (!continents[r.oc]) continents[r.oc] = { code: r.oc, name: r.on || r.oc, count: 0 };
+      continents[r.oc].count++;
+    }
+    if (r.cc) {
+      if (!countries[r.cc]) countries[r.cc] = { code: r.cc, name: r.cn || r.cc, continentCode: r.oc, continentName: r.on || '', count: 0 };
+      countries[r.cc].count++;
+    }
+  }
+
+  Object.values(continents).forEach(c => { c.percent = found > 0 ? (c.count / total * 100) : 0; });
+  Object.values(countries).forEach(c => { c.percent = found > 0 ? (c.count / total * 100) : 0; });
+
+  return { total, found, notFound, continents, countries };
+}
+
 const SAMPLE_IPS = `8.8.8.8
 1.1.1.1
 208.67.222.222
@@ -100,6 +128,35 @@ export function renderAnalyse(container) {
 
     const worker = new Worker('./js/workers/analysis-worker.js');
     activeWorker = worker;
+    if (window.geoipApp.currentDb.type === 'mmdb') {
+      worker.terminate();
+      activeWorker = null;
+      fetch('/api/mmdb-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ db_path: window.geoipApp.currentDb.mmdbPath, ips })
+      })
+        .then(async res => {
+          if (!res.ok) throw new Error('MMDB lookup failed');
+          return res.json();
+        })
+        .then(data => {
+          const results = (data.results || []).map(r => r.found ? r : { ip: r.ip, found: false });
+          const stats = buildStatsFromLookup(results, ips.length);
+          progCard.style.display = 'none';
+          document.getElementById('analyze-btn').disabled = false;
+          window.geoipApp.results = { results, stats };
+          window.showToast(`Analyse terminée: ${stats.found.toLocaleString()} localisées, ${stats.notFound.toLocaleString()} non détectées`, 'success');
+          window.geoipApp.navigate('results');
+        })
+        .catch(err => {
+          progCard.style.display = 'none';
+          document.getElementById('analyze-btn').disabled = false;
+          window.showToast('Erreur analyse MMDB: ' + err.message, 'error');
+        });
+      return;
+    }
+
     worker.postMessage({ type: 'analyze', ips, entries: window.geoipApp.currentDb.entries });
 
     worker.onmessage = msg => {
@@ -112,7 +169,7 @@ export function renderAnalyse(container) {
         progCard.style.display = 'none';
         document.getElementById('analyze-btn').disabled = false;
         window.geoipApp.results = { results, stats };
-        window.showToast(`Analyse terminée: ${stats.found.toLocaleString()} / ${stats.total.toLocaleString()} IPs localisées`, 'success');
+        window.showToast(`Analyse terminée: ${stats.found.toLocaleString()} localisées, ${stats.notFound.toLocaleString()} non détectées`, 'success');
         window.geoipApp.navigate('results');
       }
     };

@@ -1,5 +1,5 @@
 import express from 'express';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { Reader } from 'mmdb-lib';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,6 +7,51 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
+const mmdbCache = new Map();
+
+function pickName(names) {
+  if (!names) return '';
+  return names.en || names[Object.keys(names)[0]] || '';
+}
+
+function normalizeMmdbResult(ip, data) {
+  if (!data) {
+    return { ip, found: false };
+  }
+
+  const country = data.country || data.registered_country || data.represented_country || null;
+  const continent = data.continent || null;
+  const location = data.location || null;
+
+  return {
+    ip,
+    found: true,
+    cc: (country && country.iso_code ? String(country.iso_code).toUpperCase() : ''),
+    cn: pickName(country && country.names),
+    oc: (continent && continent.code ? String(continent.code).toUpperCase() : ''),
+    on: pickName(continent && continent.names),
+    lat: location && typeof location.latitude === 'number' ? location.latitude : 0,
+    lon: location && typeof location.longitude === 'number' ? location.longitude : 0
+  };
+}
+
+function getMmdbEntry(absPath) {
+  const stat = statSync(absPath);
+  const cached = mmdbCache.get(absPath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached;
+  }
+
+  const buf = readFileSync(absPath);
+  const entry = {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    buf,
+    reader: new Reader(buf)
+  };
+  mmdbCache.set(absPath, entry);
+  return entry;
+}
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -27,14 +72,13 @@ app.post('/api/mmdb-lookup', (req, res) => {
     if (!existsSync(absPath)) {
       return res.status(404).json({ error: 'DB file not found' });
     }
-    const buf = readFileSync(absPath);
-    const reader = new Reader(buf);
+    const { reader } = getMmdbEntry(absPath);
     const results = ips.map(ip => {
       try {
         const data = reader.get(ip);
-        return { ip, ...data };
+        return normalizeMmdbResult(ip, data);
       } catch {
-        return { ip, error: 'not_found' };
+        return { ip, found: false, cc: '', cn: '', oc: '', on: '', lat: 0, lon: 0 };
       }
     });
     res.json({ results });
@@ -52,8 +96,7 @@ app.get('/api/db-info', (req, res) => {
     if (!existsSync(absPath)) {
       return res.status(404).json({ error: 'DB file not found' });
     }
-    const buf = readFileSync(absPath);
-    const reader = new Reader(buf);
+    const { buf, reader } = getMmdbEntry(absPath);
     res.json({ path: dbPath, size: buf.length, metadata: reader.metadata });
   } catch (err) {
     res.status(500).json({ error: err.message });

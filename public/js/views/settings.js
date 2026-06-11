@@ -74,6 +74,8 @@ async function refreshDbList() {
     if (db) {
       window.geoipApp.currentDb = { id: db.id, name: db.name, type: db.type, entries: db.entries };
       await saveState('activeDbId', id);
+      await saveState('activeDbType', 'file');
+      await saveState('activeMmdbPath', '');
       window.geoipApp.updateDbStatus();
       window.showToast(`Base "${db.name}" activée (${db.entries.length.toLocaleString()} entrées)`, 'success');
       await refreshDbList();
@@ -146,7 +148,14 @@ function bindEvents() {
     try {
       const res = await fetch('/api/db-info?path=' + encodeURIComponent(pathVal));
       if (!res.ok) { window.showToast('Fichier MMDB introuvable sur le serveur', 'error'); return; }
-      window.showToast('MMDB chargé via serveur. Utilisez la fonctionnalité via le serveur.', 'info');
+      const name = pathVal.split(/[\\/]/).pop() || pathVal;
+      window.geoipApp.currentDb = { id: `mmdb:${pathVal}`, name, type: 'mmdb', mmdbPath: pathVal, entries: [] };
+      await saveState('activeDbId', '');
+      await saveState('activeDbType', 'mmdb');
+      await saveState('activeMmdbPath', pathVal);
+      window.geoipApp.updateDbStatus();
+      await refreshDbList();
+      window.showToast('MMDB activé et mis en cache côté serveur.', 'success');
     } catch {
       if (status) status.textContent = '❌ Serveur requis pour les fichiers MMDB';
       window.showToast('Serveur non disponible', 'error');
@@ -189,6 +198,8 @@ function handleFile(file) {
         await saveDatabase(id, { name: name.replace(/\.gz$/, ''), type: dbType, entries });
         window.geoipApp.currentDb = { id, name: name.replace(/\.gz$/, ''), type: dbType, entries };
         await saveState('activeDbId', id);
+        await saveState('activeDbType', 'file');
+        await saveState('activeMmdbPath', '');
         window.geoipApp.updateDbStatus();
         window.showToast(`Base chargée: ${entries.length.toLocaleString()} entrées`, 'success');
         await refreshDbList();

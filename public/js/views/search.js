@@ -43,7 +43,7 @@ export function renderSearch(container) {
   btn?.addEventListener('click', doSearch);
 }
 
-function performSearch(query) {
+async function performSearch(query) {
   const resultsCard = document.getElementById('search-results');
   const content = document.getElementById('search-results-content');
   const db = window.geoipApp.currentDb;
@@ -52,6 +52,35 @@ function performSearch(query) {
 
   if (isValidIPv4(query)) {
     if (!db) { content.innerHTML = '<p class="text-secondary">Chargez une base pour effectuer une recherche IP.</p>'; return; }
+
+    if (db.type === 'mmdb') {
+      content.innerHTML = `<p class="text-secondary">Recherche dans la base MMDB...</p>`;
+      try {
+        const res = await fetch('/api/mmdb-lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ db_path: db.mmdbPath, ips: [query] })
+        });
+        if (!res.ok) throw new Error('MMDB lookup failed');
+        const data = await res.json();
+        const entry = (data.results || [])[0];
+        if (!entry || !entry.found) {
+          content.innerHTML = `<div class="result-card"><h3>🔍 ${query}</h3><p class="text-secondary">IP non détectée dans la base MMDB.</p></div>`;
+        } else {
+          const flag = countryFlag(entry.cc);
+          content.innerHTML = `<div class="result-card">
+            <h3>${flag} ${query}</h3>
+            <div class="result-row"><span>Pays</span><span>${flag} ${entry.cn || entry.cc || '—'} (${entry.cc||''})</span></div>
+            <div class="result-row"><span>Continent</span><span>${entry.on || CONTINENT_NAMES[entry.oc] || entry.oc || '—'} (${entry.oc||''})</span></div>
+            <div class="result-row"><span>Coordonnées</span><span>${entry.lat ? entry.lat+', '+entry.lon : '—'}</span></div>
+          </div>`;
+        }
+      } catch (err) {
+        content.innerHTML = `<div class="result-card"><h3>🔍 ${query}</h3><p class="text-secondary">Erreur de recherche MMDB: ${err.message}</p></div>`;
+      }
+      return;
+    }
+
     const ipInt = ipv4ToInt(query);
     const entry = lookupIpv4(db.entries, ipInt);
     if (!entry) {

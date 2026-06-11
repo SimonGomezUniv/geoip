@@ -2,6 +2,7 @@ const DB_NAME = 'geoip-db';
 const DB_VERSION = 1;
 
 let _db = null;
+const databaseCache = new Map();
 
 function openDb() {
   if (_db) return Promise.resolve(_db);
@@ -32,18 +33,25 @@ function tx(store, mode, fn) {
 }
 
 export async function saveDatabase(id, data) {
-  return tx('databases', 'readwrite', s => s.put({
+  const payload = {
     id,
     name: data.name,
     type: data.type,
     entries: data.entries,
     entriesCount: data.entries.length,
     loadedAt: new Date().toISOString()
-  }));
+  };
+  databaseCache.set(id, payload);
+  return tx('databases', 'readwrite', s => s.put(payload));
 }
 
 export async function loadDatabase(id) {
-  return tx('databases', 'readonly', s => s.get(id));
+  if (databaseCache.has(id)) {
+    return databaseCache.get(id);
+  }
+  const db = await tx('databases', 'readonly', s => s.get(id));
+  if (db) databaseCache.set(id, db);
+  return db;
 }
 
 export async function listDatabases() {
@@ -61,6 +69,7 @@ export async function listDatabases() {
 }
 
 export async function deleteDatabase(id) {
+  databaseCache.delete(id);
   return tx('databases', 'readwrite', s => s.delete(id));
 }
 

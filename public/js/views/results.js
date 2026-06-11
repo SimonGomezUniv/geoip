@@ -17,6 +17,7 @@ export async function renderResults(container) {
   <div class="stats-grid">
     <div class="stat-card"><span class="stat-number" id="stat-total">0</span><span class="stat-label">IPs analysées</span></div>
     <div class="stat-card"><span class="stat-number" id="stat-found">0</span><span class="stat-label">IPs localisées</span></div>
+    <div class="stat-card"><span class="stat-number" id="stat-notfound">0</span><span class="stat-label">IPs non détectées</span></div>
     <div class="stat-card"><span class="stat-number" id="stat-countries">0</span><span class="stat-label">Pays distincts</span></div>
     <div class="stat-card"><span class="stat-number" id="stat-continents">0</span><span class="stat-label">Continents</span></div>
   </div>
@@ -61,6 +62,7 @@ export async function renderResults(container) {
   // Fill stats
   document.getElementById('stat-total').textContent = stats.total.toLocaleString();
   document.getElementById('stat-found').textContent = stats.found.toLocaleString();
+  document.getElementById('stat-notfound').textContent = (stats.notFound || 0).toLocaleString();
   document.getElementById('stat-countries').textContent = Object.keys(stats.countries || {}).length;
   document.getElementById('stat-continents').textContent = Object.keys(stats.continents || {}).length;
 

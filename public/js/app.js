@@ -36,7 +36,11 @@ function updateDbStatus() {
   const el = document.getElementById('db-status-text');
   if (!el) return;
   if (window.geoipApp.currentDb) {
-    el.textContent = `✅ ${window.geoipApp.currentDb.name} (${window.geoipApp.currentDb.entries.length.toLocaleString()} entrées)`;
+    if (window.geoipApp.currentDb.type === 'mmdb') {
+      el.textContent = `✅ ${window.geoipApp.currentDb.name} (MMDB)`;
+    } else {
+      el.textContent = `✅ ${window.geoipApp.currentDb.name} (${window.geoipApp.currentDb.entries.length.toLocaleString()} entrées)`;
+    }
   } else {
     el.textContent = 'Aucune base chargée';
   }
@@ -65,10 +69,15 @@ window.addEventListener('load', async () => {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
-  // Restore last active DB
+  // Restore last active DB or MMDB source
   try {
+    const activeType = await loadState('activeDbType');
+    const activeMmdbPath = await loadState('activeMmdbPath');
     const activeId = await loadState('activeDbId');
-    if (activeId) {
+    if (activeType === 'mmdb' && activeMmdbPath) {
+      const name = activeMmdbPath.split(/[\\/]/).pop() || activeMmdbPath;
+      window.geoipApp.currentDb = { id: `mmdb:${activeMmdbPath}`, name, type: 'mmdb', mmdbPath: activeMmdbPath, entries: [] };
+    } else if (activeId) {
       const db = await loadDatabase(activeId);
       if (db && db.entries) {
         window.geoipApp.currentDb = { id: db.id, name: db.name, type: db.type, entries: db.entries };

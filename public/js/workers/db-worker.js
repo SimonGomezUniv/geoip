@@ -27,6 +27,15 @@ function normalizeCountryCode(val) {
   return String(val).trim().toUpperCase();
 }
 
+function pickField(cols, aliases) {
+  const byLower = Object.create(null);
+  cols.forEach(c => { byLower[String(c).toLowerCase()] = c; });
+  for (const a of aliases) {
+    if (byLower[a]) return byLower[a];
+  }
+  return '';
+}
+
 function ipv4ToInt(ip) {
   const p = ip.split('.');
   return ((+p[0] << 24) | (+p[1] << 16) | (+p[2] << 8) | +p[3]) >>> 0;
@@ -60,12 +69,12 @@ self.onmessage = async function(e) {
       const hasCidr = cols.some(c => c.toLowerCase() === 'network');
       const hasRange = cols.some(c => c.toLowerCase() === 'start_ip');
 
-      const ccField = cols.find(c => ['country_code','country','cc'].includes(c.toLowerCase())) || '';
-      const cnField = cols.find(c => ['country_name','cn'].includes(c.toLowerCase())) || '';
-      const ocField = cols.find(c => ['continent_code','continent','oc'].includes(c.toLowerCase())) || '';
-      const onField = cols.find(c => ['continent_name','on'].includes(c.toLowerCase())) || '';
-      const latField = cols.find(c => ['latitude','lat'].includes(c.toLowerCase())) || '';
-      const lonField = cols.find(c => ['longitude','lon'].includes(c.toLowerCase())) || '';
+      const ccField = pickField(cols, ['country_code','country_iso_code','iso_code','iso2','cc','country']);
+      const cnField = pickField(cols, ['country_name','country','cn']);
+      const ocField = pickField(cols, ['continent_code','continent_iso_code','continent_code2','oc','continent']);
+      const onField = pickField(cols, ['continent_name','continent','on']);
+      const latField = pickField(cols, ['latitude','lat']);
+      const lonField = pickField(cols, ['longitude','lon']);
 
       const entries = [];
       for (let i = 0; i < total; i++) {
