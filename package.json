@@ -1,0 +1,16 @@
+{
+  "name": "geoip-analyser",
+  "version": "1.0.0",
+  "description": "GeoIP Analyser PWA",
+  "type": "module",
+  "scripts": {
+    "preinstall": "node setup.js",
+    "start": "node server.js",
+    "dev": "node server.js",
+    "setup": "node setup.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mmdb-lib": "^2.0.0"
+  }
+}

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoIP Analyser</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <meta name="theme-color" content="#1a1a2e">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header>
+    <div class="header-brand">
+      <span class="logo">🌍</span>
+      <span class="brand-name">GeoIP Analyser</span>
+    </div>
+    <nav id="main-nav">
+      <a href="#settings" class="nav-link" data-view="settings">⚙️ Paramétrage</a>
+      <a href="#analyse" class="nav-link" data-view="analyse">🔍 Analyse</a>
+      <a href="#results" class="nav-link" data-view="results">📊 Résultats</a>
+      <a href="#search" class="nav-link" data-view="search">🔎 Recherche</a>
+    </nav>
+    <div id="db-status" class="db-status">
+      <span id="db-status-text">Aucune base chargée</span>
+    </div>
+  </header>
+
+  <main id="app-content"></main>
+  <div id="toast-container"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
